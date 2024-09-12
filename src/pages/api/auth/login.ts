@@ -17,6 +17,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
+    // Remover tokens expirados
+    await pool.query('DELETE FROM tokens WHERE expiracao < $1', [new Date()]);
+
     const result = await pool.query('SELECT * FROM usuarios WHERE email = $1', [email]);
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
@@ -29,10 +32,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const token = jwt.sign({ id: usuario.id, email: usuario.email }, SECRET_KEY, { expiresIn: '1m' });
-    await pool.query('INSERT INTO tokens (usuario_id, token, expiracao) VALUES ($1, $2, $3)', [
+    const agora = new Date();
+    const expiracao = new Date(agora.getTime() + 60 * 1000); // 1 minute from now
+
+    // Inserir o novo token
+    await pool.query('INSERT INTO tokens (usuario_id, token, expiracao, criado_em) VALUES ($1, $2, $3, $4)', [
       usuario.id,
       token,
-      new Date(Date.now() + 60 * 1000), // 1 minute from now
+      expiracao,
+      agora, // Data de criação
+    ]);
+
+    // Atualizar o campo ultimo_login com a mesma data do campo criado_em
+    await pool.query('UPDATE usuarios SET ultimo_login = $1 WHERE id = $2', [
+      agora, // Mesma data de criado_em
+      usuario.id,
     ]);
 
     return res.status(200).json({ token });
